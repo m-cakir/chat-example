@@ -1,0 +1,55 @@
+version: "2"
+
+services:
+
+  redis-cluster:
+    image: grokzen/redis-cluster:latest
+    ports:
+      - "7000-7005:7000-7005"
+    environment:
+      IP: "0.0.0.0"
+      SENTINEL: "true"
+
+  socket-server:
+    build: ./server
+    ports:
+      - "30001-30003:3001"
+    environment:
+      DEBUG: "socket.io:server*"
+      NODE_ENV: development
+      PORT: 3001
+      REDIS_HOSTS: '[{"host":"redis-cluster","port":7000},{"host":"redis-cluster","port":7001},{"host":"redis-cluster","port":7002},{"host":"redis-cluster","port":7003},{"host":"redis-cluster","port":7004},{"host":"redis-cluster","port":7005}]'
+      CORS_ORIGIN: 'http://localhost:3000'
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.socket-server.entrypoints=socket"
+      - "traefik.http.routers.socket-server.rule=PathPrefix(`/`)"
+      - "traefik.http.services.socket-server.loadbalancer.sticky.cookie=true"
+      - "traefik.http.services.socket-server.loadbalancer.sticky.cookie.name=server_id"
+      - "traefik.http.services.socket-server.loadbalancer.sticky.cookie.httpOnly=true"
+    depends_on:
+      - redis-cluster
+
+  web:
+    build: ./web
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_SOCKET_ENDPOINT: 'http://localhost:3001'
+
+  traefik:
+    image: traefik:v2.4.5
+    command:
+      - "--log.level=DEBUG"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.socket.address=:3001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "3001:3001"
+      - "8080:8080"
+    depends_on:
+      - socket-server
+
